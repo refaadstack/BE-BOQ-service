@@ -3,13 +3,13 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 
 import boqRoutes from './routes/boqRoutes.js';
-import { sequelize } from './models/index.js'; // ⬅️ pastikan ini benar
+import categoryRoutes from './routes/categoryRoutes.js';
+import { sequelize } from './models/index.js';
 
 dotenv.config();
 
 const app = express();
 
-// Aktifkan CORS agar bisa diakses dari React
 app.use(cors({
   origin: 'http://localhost:5173',
   credentials: true,
@@ -17,12 +17,14 @@ app.use(cors({
 
 app.use(express.json());
 
-// Sync DB
-sequelize.sync({ alter: true }) // ⬅️ auto create/update tabel dari model
+// Sync Sequelize Models
+sequelize.sync({ alter: true })
   .then(() => console.log('✅ Database synced'))
   .catch(err => console.error('❌ Failed to sync DB:', err));
 
+// ROUTES
 app.use('/api/boq', boqRoutes);
+app.use('/api/categories', categoryRoutes);
 
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => {

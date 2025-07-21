@@ -13,6 +13,10 @@ export default (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    project_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true, // boleh null supaya kategori lama tidak error
+    },
   }, {
     tableName: "categories",
     underscored: true,
