@@ -10,4 +10,4 @@ RUN mkdir -p /app/uploads && addgroup -S app && adduser -S app -G app && chown -
 USER app
 EXPOSE 3005
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://localhost:3005/health | grep -q success
-CMD [node, src/server.js]
+CMD ["node", "src/server.js"]
