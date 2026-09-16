@@ -16,6 +16,11 @@ app.use(cors({
 }));
 
 app.use(express.json());
+// Health check (Docker/K8s)
+app.get('/health', (req, res) => {
+  res.status(200).json({ success: true, timestamp: new Date().toISOString() });
+});
+
 
 // Sync Sequelize Models
 sequelize.sync({ alter: true })
