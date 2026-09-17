@@ -1,133 +1,114 @@
-const request = require('supertest');
-const express = require('express');
+import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import request from 'supertest';
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
 
-jest.mock('../src/models', () => {
-  // Fungsi buat bikin mock instance kategori
-  function createMockCategory(id) {
-    return {
-      id,
-      project_id: 1,
-      name: 'Existing Category',
-      order_seq: 1,
-      level: 1,
-      is_active: true,
-      update: jest.fn().mockImplementation(async (data) => {
-        // simulasikan update properti name dan lainnya
-        return { ...createMockCategory(id), ...data };
-      }),
-      destroy: jest.fn().mockResolvedValue(true),
-    };
-  }
-
-  // Fungsi buat mock item map (relasi item ke kategori)
-  function createMockItemMap(category_id, item_id) {
-    return {
-      category_id,
-      item_id,
-      destroy: jest.fn().mockResolvedValue(true),
-    };
-  }
-
-  return {
-    BoqCategory: {
-      findAll: jest.fn().mockResolvedValue([
-        { id: 1, project_id: 1, name: 'Mock Category 1', order_seq: 1, level: 1, is_active: true },
-      ]),
-      create: jest.fn().mockImplementation(data => Promise.resolve({ id: 2, ...data })),
-      findByPk: jest.fn().mockImplementation(id => {
-        if (id === 1) return Promise.resolve(createMockCategory(id));
-        return Promise.resolve(null);
-      }),
-    },
-    BoqItemMap: {
-      findOne: jest.fn().mockImplementation(({ where }) => {
-        if (where.category_id === 1 && where.item_id === 1) {
-          // relasi sudah ada => duplicate
-          return Promise.resolve(createMockItemMap(where.category_id, where.item_id));
-        }
-        // jika cek untuk hapus relasi yg ada
-        if (where.category_id === 1 && where.item_id === 999) {
-          return Promise.resolve(null);
-        }
-        // jika cek relasi yang tidak ada
-        return Promise.resolve(null);
-      }),
-      create: jest.fn().mockResolvedValue({ id: 1, category_id: 1, item_id: 999 }),
-    },
-  };
-});
-
-const boqRoutes = require('../src/routes/boqRoutes');
+process.env.JWT_SECRET = randomBytes(32).toString('hex');
+delete process.env.AUTH_SERVICE_URL;
+const token = jwt.sign({ userId: 7, roles: 'user' }, process.env.JWT_SECRET, { expiresIn: '5m' });
+const auth = `Bearer ${token}`;
+const Category = { findAll: jest.fn() };
+const ProjectItem = {
+  findAll: jest.fn(), create: jest.fn(), update: jest.fn(), destroy: jest.fn(),
+};
+jest.unstable_mockModule('../src/models/index.js', () => ({ Category, ProjectItem }));
+const { default: boqRoutes } = await import('../src/routes/boqRoutes.js');
 const app = express();
 app.use(express.json());
 app.use('/api/boq', boqRoutes);
 
-describe('BOQ Routes with Mock Models', () => {
-  const testProjectId = 1;
+beforeEach(() => {
+  jest.resetAllMocks();
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => jest.restoreAllMocks());
 
-  test('GET /api/boq/projects/:projectId/categories should return categories array', async () => {
-    const res = await request(app).get(`/api/boq/projects/${testProjectId}/categories`);
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(Array.isArray(res.body.data)).toBe(true);
-    expect(res.body.data[0].name).toBe('Mock Category 1');
+describe('Active BOQ routes with isolated model mocks', () => {
+  test('GET groups project items by category', async () => {
+    const category = { id: 2, project_id: 7, name: 'Concrete', children: [] };
+    const item = { id: 4, project_id: 7, category_id: 2, volume: 3 };
+    Category.findAll.mockResolvedValue([category]);
+    ProjectItem.findAll.mockResolvedValue([item]);
+    const res = await request(app).get('/api/boq/projects/7').set('Authorization', auth);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ categories: [category], items: { 2: [item] } });
+    expect(Category.findAll).toHaveBeenCalledWith(expect.objectContaining({
+      where: { project_id: '7', parent_id: null },
+    }));
+    expect(ProjectItem.findAll).toHaveBeenCalledWith({ where: { project_id: '7' } });
   });
 
-  test('POST /api/boq/projects/:projectId/categories should create a category', async () => {
-    const res = await request(app)
-      .post(`/api/boq/projects/${testProjectId}/categories`)
-      .send({
-        name: 'New Mock Category',
-        order_seq: 1,
-        level: 1,
-        is_active: true,
-      });
-    expect(res.statusCode).toBe(201);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.name).toBe('New Mock Category');
+  test('GET returns empty collections for an empty project', async () => {
+    Category.findAll.mockResolvedValue([]);
+    ProjectItem.findAll.mockResolvedValue([]);
+    const res = await request(app).get('/api/boq/projects/7').set('Authorization', auth);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ categories: [], items: {} });
   });
 
-  test('PUT /api/boq/categories/:id should update a category', async () => {
-    const res = await request(app)
-      .put(`/api/boq/categories/1`)
-      .send({
-        name: 'Updated Mock Category',
-        order_seq: 2,
-        level: 1,
-        is_active: false,
-      });
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.name).toBe('Updated Mock Category');
-  });
-
-  test('POST /api/boq/categories/:categoryId/items should add item to category', async () => {
-    // pakai item_id yang belum ada agar bisa sukses create
-    const res = await request(app)
-      .post(`/api/boq/categories/1/items`)
-      .send({ item_id: 999 });
-    expect(res.statusCode).toBe(201);
-    expect(res.body.success).toBe(true);
-  });
-
-  test('POST /api/boq/categories/:categoryId/items should fail to add duplicate item', async () => {
-    // pakai item_id yang sudah ada supaya error duplicate
-    const res = await request(app)
-      .post(`/api/boq/categories/1/items`)
-      .send({ item_id: 1 });
-    expect(res.statusCode).toBe(400);
+  test('GET reports model failure', async () => {
+    Category.findAll.mockRejectedValue(new Error('database unavailable'));
+    const res = await request(app).get('/api/boq/projects/7').set('Authorization', auth);
+    expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);
   });
 
-  test('DELETE /api/boq/categories/:categoryId/items/:itemId should remove item from category', async () => {
-    const res = await request(app).delete(`/api/boq/categories/1/items/1`);
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
+  test('POST persists the project item payload', async () => {
+    const body = { item_id: 3, category_id: 2, volume: 4, unit_price: 12000, notes: 'test' };
+    ProjectItem.create.mockResolvedValue({ id: 8, project_id: '7', ...body });
+    const res = await request(app).post('/api/boq/projects/7/items').set('Authorization', auth).send(body);
+    expect(res.status).toBe(201);
+    expect(res.body.data.id).toBe(8);
+    expect(ProjectItem.create).toHaveBeenCalledWith({ project_id: '7', ...body });
   });
 
-  test('DELETE /api/boq/categories/:id should delete category', async () => {
-    const res = await request(app).delete(`/api/boq/categories/1`);
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
+  test('POST reports persistence failure', async () => {
+    ProjectItem.create.mockRejectedValue(new Error('database unavailable'));
+    const res = await request(app).post('/api/boq/projects/7/items').set('Authorization', auth).send({ item_id: 3 });
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+  });
+
+  test.each([[1, 200], [0, 404]])('PUT affected rows %i returns %i', async (count, status) => {
+    ProjectItem.update.mockResolvedValue([count]);
+    const res = await request(app).put('/api/boq/items/8').set('Authorization', auth).send({ volume: 5 });
+    expect(res.status).toBe(status);
+    expect(ProjectItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({ volume: 5 }), { where: { id: '8' } },
+    );
+  });
+
+  test('PUT reports persistence failure', async () => {
+    ProjectItem.update.mockRejectedValue(new Error('database unavailable'));
+    expect((await request(app).put('/api/boq/items/8').set('Authorization', auth).send({ volume: 5 })).status).toBe(500);
+  });
+
+  test.each([[1, 200], [0, 404]])('DELETE affected rows %i returns %i', async (count, status) => {
+    ProjectItem.destroy.mockResolvedValue(count);
+    const res = await request(app).delete('/api/boq/items/8').set('Authorization', auth);
+    expect(res.status).toBe(status);
+    expect(ProjectItem.destroy).toHaveBeenCalledWith({ where: { id: '8' } });
+  });
+
+  test('DELETE reports persistence failure', async () => {
+    ProjectItem.destroy.mockRejectedValue(new Error('database unavailable'));
+    expect((await request(app).delete('/api/boq/items/8').set('Authorization', auth)).status).toBe(500);
+  });
+});
+
+describe('BOQ authentication boundary', () => {
+  test.each([
+    ['get', '/api/boq/projects/7'],
+    ['post', '/api/boq/projects/7/items'],
+    ['put', '/api/boq/items/8'],
+    ['delete', '/api/boq/items/8'],
+  ])('%s %s requires a bearer token', async (method, url) => {
+    const res = await request(app)[method](url).send({});
+    expect(res.status).toBe(401);
+    expect(Category.findAll).not.toHaveBeenCalled();
+    expect(ProjectItem.create).not.toHaveBeenCalled();
+    expect(ProjectItem.update).not.toHaveBeenCalled();
+    expect(ProjectItem.destroy).not.toHaveBeenCalled();
   });
 });

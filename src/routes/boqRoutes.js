@@ -5,8 +5,11 @@ import {
   updateProjectItem,
   deleteProjectItem,
 } from '../controllers/boqController.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Ambil semua kategori + item dalam 1 proyek
 router.get('/projects/:projectId', getProjectBoq);

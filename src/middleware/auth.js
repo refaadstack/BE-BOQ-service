@@ -5,17 +5,16 @@ const getSecret = () => process.env.JWT_SECRET || process.env.JWT_SECRET_KEY;
 
 export const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = /^Bearer ([^\s]+)$/i.exec(authHeader || '')?.[1];
   if (!token) {
     return res.status(401).json({ success: false, message: 'No token provided' });
   }
 
   try {
-    const decoded = jwt.verify(token, getSecret());
-    // Optionally verify token with Auth Service (skipped if not configured)
+    const decoded = jwt.verify(token, getSecret(), { algorithms: ['HS256'] });
     const authServiceUrl = process.env.AUTH_SERVICE_URL;
     if (authServiceUrl) {
-      const response = await axios.post(authServiceUrl + '/api/auth/verify-token', { token });
+      const response = await axios.post(authServiceUrl + '/api/auth/verify-token', { token }, { timeout: 5000 });
       if (!response.data || !response.data.valid) {
         return res.status(401).json({ success: false, message: 'Invalid token' });
       }

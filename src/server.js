@@ -4,6 +4,7 @@ import cors from 'cors';
 
 import boqRoutes from './routes/boqRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
+import boqsRoutes from './routes/boqsRoutes.js';
 import { sequelize } from './models/index.js';
 
 dotenv.config();
@@ -30,6 +31,7 @@ sequelize.sync({ alter: true })
 // ROUTES
 app.use('/api/boq', boqRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/boqs', boqsRoutes);
 
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => {

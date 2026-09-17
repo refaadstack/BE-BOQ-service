@@ -5,8 +5,11 @@ import {
   updateCategory,
   deleteCategory,
 } from '../controllers/categoryController.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+router.use(authenticateToken);
 
 router.get('/', getAllCategories);
 router.post('/', createCategory);
