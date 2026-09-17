@@ -13,13 +13,19 @@ export const authenticateToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, getSecret(), { algorithms: ['HS256'] });
     const authServiceUrl = process.env.AUTH_SERVICE_URL;
+    let freshUser = null;
     if (authServiceUrl) {
       const response = await axios.post(authServiceUrl + '/api/auth/verify-token', { token }, { timeout: 5000 });
       if (!response.data || !response.data.valid) {
         return res.status(401).json({ success: false, message: 'Invalid token' });
       }
+      freshUser = response.data.user || null;
     }
     req.user = decoded;
+    if (freshUser) {
+      if (Array.isArray(freshUser.permissions)) req.user.permissions = freshUser.permissions;
+      if (freshUser.roles) req.user.roles = freshUser.roles;
+    }
     next();
   } catch (error) {
     return res.status(403).json({ success: false, message: 'Failed to authenticate token' });

@@ -79,6 +79,16 @@ export const updateBoq = async (req, res) => {
   }
 };
 
+// Kolom internal (harga beli/laba) hanya untuk pemegang izin.
+// Token lama tanpa klaim permissions diizinkan (kompatibel mundur).
+const canSeeInternal = (user) => {
+  if (!user) return false;
+  if (user.roles === 'admin') return true;
+  const granted = user.permissions;
+  if (!Array.isArray(granted)) return true;
+  return granted.includes('*') || granted.includes('boq.export.internal');
+};
+
 const loadProject = async (req, projectId) => {
   if (!projectId) return null;
   try {
@@ -129,7 +139,11 @@ export const exportBoq = async (req, res) => {
     const detail = await getBoqDetail(models, id);
     if (!detail) return res.status(404).json({ success: false, message: 'BOQ tidak ditemukan.' });
     detail.company = await loadCompany(models);
-    detail.options = parsePdfOptions(req.query);
+    detail.options = parsePdfOptions(req.query) || {};
+    const wantsInternal = format === 'xlsx' || detail.options.cost === true;
+    if (wantsInternal && !canSeeInternal(req.user)) {
+      return res.status(403).json({ success: false, message: 'Akses ditolak. Butuh izin: boq.export.internal.' });
+    }
     if (format === 'pdf') {
       detail.project = await loadProject(req, detail.boq?.project_id);
       const rawPdf = await exportBoqToPdf(detail);
